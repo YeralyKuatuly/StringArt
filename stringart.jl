@@ -201,6 +201,10 @@ end
 
     # calculate line / chord points
     p, q = chord
+    # can't generate a line if both points are the same
+    if isapprox(real(p), real(q), rtol=1e-3)
+        p, q = p - 0.5, q + 0.5
+    end
     a, b = get_coefficients(p, q)
 
     x = LinRange(real(p), real(q), size)
