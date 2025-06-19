@@ -32,16 +32,16 @@ function main()
     @info "Running StringArt algorithm..."
     png, svg, gif = StringArt.run(inp, args)
 
-    @info "Saving final output as a PNG..."
+    @info "Saving final output '$output_path' as a PNG..."
     save(output_path * ".png", png)
 
     args["svg"] && let
-        @info "Saving final output as a SVG..."
+        @info "Saving final output '$output_path' as a SVG..."
         StringArt.save_svg(output_path, svg)
     end
 
     args["gif"] && let
-        @info "Saving final output as a GIF..."
+        @info "Saving final output '$output_path' as a GIF..."
         StringArt.save_gif(output_path, gif)
     end
 
