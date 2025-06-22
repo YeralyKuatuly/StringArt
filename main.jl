@@ -25,9 +25,7 @@ function main()
     @debug "Parsed arguments: $args"
 
     @info "Loading input image '$input_path'"
-    inp = args["color-mode"] ?
-          StringArt.load_color_image(input_path, args["size"], args["colors"]) :
-          StringArt.load_image(input_path, args["size"])
+    inp = StringArt.load_image(input_path, args["size"], args["colors"], args["mode"])
 
     @info "Running StringArt algorithm..."
     png, svg, gif = StringArt.run(inp, args)
@@ -70,9 +68,6 @@ function parse_cmd()
         "--svg"
         help = "Save output as a SVG"
         action = :store_true
-        "--color-mode"
-        help = "RGB mode"
-        action = :store_true
         "--size", "-s"
         help = "output image size in pixels"
         arg_type = Int
@@ -93,12 +88,15 @@ function parse_cmd()
         help = "gaussian blur kernel size"
         arg_type = Int
         default = 1
+        "--rgb"
+        help = "use basic RGB color mode (default: red, green, blue)"
+        action = :store_true
         "--custom-colors"
-        help = "HEX code of colors to use in RGB mode"
+        help = "comma-separated HEX color codes for custom color strands (e.g. #FF0000,#00FF00)"
         arg_type = String
         default = nothing
-        "--color-palette"
-        help = "extract a color palette from the image to be used in color-mode"
+        "--palette"
+        help = "number of colors to extract as a palette from the input image (k-means clustering)"
         arg_type = Int
         default = nothing
         "--verbose"
@@ -133,24 +131,22 @@ function get_palette(args::Dict{String,Any})::Vector{RGB{N0f8}}
 end
 
 function args_postprocessing(args)::Dict{String,Any}
-    # if color related argument is passed, run in RGB mode
-    if !isnothing(args["custom-colors"]) || !isnothing(args["color-palette"])
-        args["color-mode"] = true
-    end
-
-    # parse colors from cmd arguments
-    if !isnothing(args["color-palette"])
-        # WIP, not implemented yet
+    if !isnothing(args["palette"])
+        # create a color pallet using the input image
         args["colors"] = get_palette(args)
+        args["mode"] = StringArt.RgbMode # TODO
     elseif !isnothing(args["custom-colors"])
         # try to parse custom RGB colors
         args["colors"] = parse_colors(args["custom-colors"])
-    elseif args["color-mode"]
+        args["mode"] = StringArt.RgbMode # TODO
+    elseif args["rgb"]
         # use default Red, Green and Blue
         args["colors"] = parse_colors("#FF0000,#00FF00,#0000FF")
+        args["mode"] = StringArt.RgbMode
     else
-        # run in greyscale mode
+        # run in grayscale mode
         args["colors"] = parse_colors("#000000")
+        args["mode"] = StringArt.GrayscaleMode
     end
 
     return args

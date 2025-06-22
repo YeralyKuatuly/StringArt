@@ -7,12 +7,13 @@ using Logging
 using Memoize
 using Printf
 using Random
+using Statistics
 
 const Point = ComplexF64
 const Chord = Pair{Point,Point}
-const GrayImage = Matrix{N0f8}
-const RGBImage = Matrix{RGB{N0f8}}
-const Colors = Vector{RGB{N0f8}}
+const GrayImage = Matrix{Float32}
+const RGBImage = Matrix{RGB{Float32}}
+const Colors = Vector{RGB{Float32}}
 const DefaultArgs = Dict{String,Any}
 
 const GIF_INTERVAL = 50
@@ -20,7 +21,9 @@ const RANDOMIZED_PIN_INTERVAL = 100
 const SMALL_CHORD_CUTOFF = 0.10
 const EXCLUDE_REPEATED_PINS = false
 
-export load_color_image
+@enum StringArtMode GrayscaleMode RgbMode
+
+export StringArtMode
 export load_image
 export run
 export save_gif
@@ -32,12 +35,17 @@ export plot_chords
 export plot_color
 
 mutable struct GifWrapper
-    frames::Array{RGB{N0f8}}
+    frames::Array{RGB{Float32}}
     count::Int
 end
 
+# A wrapper that dispatches based on the OperationType
+function load_image(image_path::String, size::Int, colors::Colors, mode:: StringArtMode)::Vector{GrayImage}
+    load_image(image_path, size, colors, Val(mode))
+end
+
 """ Load and preprocess a grayscale image: crop to square and resize. """
-function load_image(image_path::String, size::Int)::Vector{GrayImage}
+function load_image(image_path::String, size::Int, colors::Colors, mode:: Val{GrayscaleMode})::Vector{GrayImage}
     # Read the image and convert it to an array
     @assert isfile(image_path) "Image file not found: $image_path"
     img = Images.load(image_path)
@@ -45,32 +53,18 @@ function load_image(image_path::String, size::Int)::Vector{GrayImage}
     img = crop_to_square(img)
     img = Images.imresize(img, size, size)
     # Convert the Image to gray scale and wrap in a vector
-    [convert(Matrix{N0f8}, Gray{N0f8}.(img))]
+    [convert(Matrix{Float32}, Gray{Float32}.(img))]
 end
 
 """ Load and decompose color image into grayscale channels based on given RGB filters. """
-function load_color_image(image_path::String, size::Int, colors::Colors)::Vector{GrayImage}
+function load_image(image_path::String, size::Int, colors::Colors, mode:: Val{RgbMode})::Vector{GrayImage}
     # Read the image and convert it to an array
     @assert isfile(image_path) "Image file not found: $image_path"
     img = Images.load(image_path)
     # Resize the image to the specified dimensions
     img = crop_to_square(img)
     img = Images.imresize(img, size, size)
-
-    # Convert to Lab color space
-    lab_img = convert.(Lab, img)
-    lab_colors = convert.(Lab, colors)
-
-    # Extract each color channel based on color distance in Lab space
-    extract_channel(c) = begin
-        distance_map = map(lab_img) do p
-            d = sqrt((p.l - c.l)^2 + (p.a - c.a)^2 + (p.b - c.b)^2)
-            return complement(N0f8(clamp01(1 - min(d / 170, 1))))
-        end
-        return distance_map
-    end
-
-    return map(extract_channel, lab_colors)
+    [red.(img), green.(img), blue.(img)]
 end
 
 """ Crop rectangular image to a centered square. """
@@ -98,28 +92,53 @@ function run(input::Vector{GrayImage}, args::DefaultArgs)::Tuple{RGBImage,String
     shuffle!(chords)
 
     # initialize output image
-    png = zeros(RGB{N0f8}, args["size"], args["size"])
+    png = zeros(RGB{Float32}, args["size"], args["size"])
     # create struct that holds gif frames
     gif = gen_gif_wrapper(args)
     # initialize svg content
     svg = [svg_header(args)]
+    # initialize an image for each color
+    images = Dict(color=>zeros(Float32, args["size"], args["size"]) for color in args["colors"])
 
     @info "Rendering Chords"
     for (n, (chord, color)) in enumerate(chords)
         # add chord to png image
-        img = gen_img(chord, args) .* complement(color)
-        add_imgs!(png, img)
+        img = gen_img(chord, args)
+        images[color] .+= img
+
         # draw svg shape
         if args["svg"]
             push!(svg, draw_line(chord, color, args))
         end
         # save gif frame
         if args["gif"] && n % GIF_INTERVAL == 0
+            png = join_channels(images, args["mode"])
             save_frame(complement.(png), gif)
         end
     end
     push!(svg, "</svg>")
-    return (complement.(png), join(svg, "\n"), gif)
+
+    png = join_channels(images, args["mode"])
+    return (png, join(svg, "\n"), gif)
+end
+
+
+function join_channels(images::Dict{RGB{Float32},GrayImage}, mode:: StringArtMode)::RGBImage
+    join_channels(images, Val(mode))
+end
+
+""" Join GrayImage channels into a single RGBImage based on the specified mode. """
+function join_channels(images::Dict{RGB{Float32},GrayImage}, mode::Val{GrayscaleMode})::RGBImage
+    complement.(clamp01nan.(images[RGB(0,0,0)]) .* RGB(1,1,1))
+end
+
+""" Join RGB channels into a single RGBImage, normalizing each channel before combining. """
+function join_channels(images::Dict{RGB{Float32},GrayImage}, mode::Val{RgbMode})::RGBImage
+    r, g, b = images[RGB(1.0,0.0,0.0)], images[RGB(0.0,1.0,0.0)], images[RGB(0.0,0.0,1.0)]
+    mr = quantile(vec(r), 0.95) # Normalization
+    mg = quantile(vec(g), 0.95) # Normalization
+    mb = quantile(vec(b), 0.95) # Normalization
+    complement.(RGB.(clamp01nan.(r/mr), clamp01nan.(g/mg), clamp01nan.(b/mb)))
 end
 
 """ Core string art generation loop. Produces ordered chords for image approximation. """
@@ -155,7 +174,7 @@ function run_algorithm(input::GrayImage, args::DefaultArgs)::Vector{Chord}
         @debug "Error calculated" idx, error
 
         @debug "Updating images and position..."
-        add_imgs!(input, img)
+        input .+= img
         push!(output, chord)
 
         # don't draw the same chord again
@@ -201,6 +220,7 @@ end
 
     # calculate line / chord points
     p, q = chord
+
     # can't generate a line if both points are the same
     if isapprox(real(p), real(q), rtol=1e-3)
         p, q = p - 0.5, q + 0.5
@@ -214,12 +234,14 @@ end
     x = round.(Int, x)
     y = round.(Int, y)
 
-    m = zeros(Gray{N0f8}, size, size)
-    idx = CartesianIndex.(x, y)
-    m[idx] .= strength
+    m = zeros(Gray{Float32}, size, size)
+    @inbounds for (x, y) in zip(x,y)
+        m[x,y] = strength
+    end
 
     # gaussian filter to smooth the line
-    imfilter(m, Kernel.gaussian(blur))
+    # imfilter(m, Kernel.gaussian(blur))
+    return m
 end
 
 """ Get slope and intercept of the line between two points. """
@@ -245,31 +267,6 @@ function select_best_chord(img::GrayImage, curves::Vector{GrayImage})::Tuple{Flo
     findmin(errors)
 end
 
-""" Add grayscale curve image to base image in-place, clipping to [0,1]. """
-function add_imgs!(img::GrayImage, curve::GrayImage)::GrayImage
-    # add images clipping values outside the range 0<x<1 (not a valid color)
-    for i in eachindex(curve)
-        if curve[i] != 0
-            img[i] = clamp01(float32(img[i]) + float32(curve[i]))
-        end
-    end
-    img
-end
-
-""" Add RGB images in-place, clipping to [0,1]. """
-function add_imgs!(img::RGBImage, curve::RGBImage)::RGBImage
-    # convert to float to prevent int (N0f8) overflow
-    for i in eachindex(img)
-        c = curve[i]
-        img[i] = RGB{N0f8}(
-            clamp01(float32(img[i].r) + float32(c.r)),
-            clamp01(float32(img[i].g) + float32(c.g)),
-            clamp01(float32(img[i].b) + float32(c.b)),
-        )
-    end
-    img
-end
-
 """ Add a frame to the gif sequence. """
 function save_frame(img::RGBImage, gif::GifWrapper)
     gif.frames[:, :, gif.count] .= img
@@ -285,11 +282,11 @@ end
 """ Initialize gif wrapper for given step count and color mode. """
 function gen_gif_wrapper(args::Dict)::GifWrapper
     if !args["gif"]
-        return GifWrapper(Array{RGB{N0f8}}(undef, 0, 0, 0), 0)
+        return GifWrapper(Array{RGB{Float32}}(undef, 0, 0, 0), 0)
     end
     n_colors = length(args["colors"])
     n_frames = n_colors * div(args["steps"], GIF_INTERVAL)
-    frames = Array{RGB{N0f8}}(undef, args["size"], args["size"], n_frames)
+    frames = Array{RGB{Float32}}(undef, args["size"], args["size"], n_frames)
     GifWrapper(frames, 1)
 end
 
@@ -304,7 +301,7 @@ function svg_header(args::DefaultArgs)::String
 end
 
 """ Draw a line in SVG format. """
-function draw_line(chord::Chord, color::RGB{N0f8}, args::DefaultArgs)::String
+function draw_line(chord::Chord, color::RGB{Float32}, args::DefaultArgs)::String
     x1, x2 = imag(chord.first), imag(chord.second)
     y1, y2 = real(chord.first), real(chord.second)
     width = @sprintf("%.2f", args["line-strength"] / 100)
@@ -347,12 +344,11 @@ function plot_chords(input::GrayImage, args::DefaultArgs)::GrayImage
 
     @debug "Plotting chords"
     for chord in chords
-        img = gen_img(chord, args)
-        add_imgs!(input, img)
+        input .+= gen_img(chord, args)
     end
 
     @debug "Done"
-    return input
+    return clamp01nan.(input)
 end
 
 """ Visual debug: returns first grayscale channel. Stub for color support. """
