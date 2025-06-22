@@ -9,11 +9,12 @@ using Printf
 using Random
 using Statistics
 
-const Point = ComplexF32
+const Point = ComplexF64
 const Chord = Pair{Point,Point}
-const GrayImage = Matrix{Float32}
-const RGBImage = Matrix{RGB{Float32}}
-const Colors = Vector{RGB{Float32}}
+const GrayImage = Matrix{N0f8}
+const RGBColor = RGB{N0f8}
+const RGBImage = Matrix{RGBColor}
+const Colors = Vector{RGBColor}
 const DefaultArgs = Dict{String,Any}
 
 const GIF_INTERVAL = 50
@@ -35,7 +36,7 @@ export plot_chords
 export plot_color
 
 mutable struct GifWrapper
-    frames::Array{RGB{Float32}}
+    frames::Array{RGBColor}
     count::Int
 end
 
@@ -53,7 +54,7 @@ function load_image(image_path::String, size::Int, colors::Colors, mode:: Val{Gr
     img = crop_to_square(img)
     img = Images.imresize(img, size, size)
     # Convert the Image to gray scale and wrap in a vector
-    [convert(Matrix{Float32}, Gray{Float32}.(img))]
+    return [convert(Matrix{N0f8}, Gray{N0f8}.(img))]
 end
 
 """ Load and decompose color image into grayscale channels based on given RGB filters. """
@@ -64,7 +65,7 @@ function load_image(image_path::String, size::Int, colors::Colors, mode:: Val{Rg
     # Resize the image to the specified dimensions
     img = crop_to_square(img)
     img = Images.imresize(img, size, size)
-    [red.(img), green.(img), blue.(img)]
+    return [red.(img), green.(img), blue.(img)]
 end
 
 """ Crop rectangular image to a centered square. """
@@ -92,19 +93,19 @@ function run(input::Vector{GrayImage}, args::DefaultArgs)::Tuple{RGBImage,String
     shuffle!(chords)
 
     # initialize output image
-    png = zeros(RGB{Float32}, args["size"], args["size"])
+    png = zeros(RGBColor, args["size"], args["size"])
     # create struct that holds gif frames
     gif = gen_gif_wrapper(args)
     # initialize svg content
     svg = [svg_header(args)]
     # initialize an image for each color
-    images = Dict(color=>zeros(Float32, args["size"], args["size"]) for color in args["colors"])
+    images = Dict(color=>zeros(N0f8, args["size"], args["size"]) for color in args["colors"])
 
     @info "Rendering Chords"
     for (n, (chord, color)) in enumerate(chords)
         # add chord to png image
         img = gen_img(chord, args)
-        images[color] .+= img
+        add_imgs!(images[color], img)
 
         # draw svg shape
         if args["svg"]
@@ -123,22 +124,19 @@ function run(input::Vector{GrayImage}, args::DefaultArgs)::Tuple{RGBImage,String
 end
 
 
-function join_channels(images::Dict{RGB{Float32},GrayImage}, mode:: StringArtMode)::RGBImage
-    join_channels(images, Val(mode))
+function join_channels(images::Dict{RGBColor,GrayImage}, mode:: StringArtMode)::RGBImage
+    return join_channels(images, Val(mode))
 end
 
 """ Join GrayImage channels into a single RGBImage based on the specified mode. """
-function join_channels(images::Dict{RGB{Float32},GrayImage}, mode::Val{GrayscaleMode})::RGBImage
-    complement.(clamp01nan.(images[RGB(0,0,0)]) .* RGB(1,1,1))
+function join_channels(images::Dict{RGBColor,GrayImage}, mode::Val{GrayscaleMode})::RGBImage
+    return complement.(images[RGB(0,0,0)] .* RGB(1,1,1))
 end
 
-""" Join RGB channels into a single RGBImage, normalizing each channel before combining. """
-function join_channels(images::Dict{RGB{Float32},GrayImage}, mode::Val{RgbMode})::RGBImage
-    r, g, b = images[RGB(1.0,0.0,0.0)], images[RGB(0.0,1.0,0.0)], images[RGB(0.0,0.0,1.0)]
-    mr = quantile(vec(r), 0.95) # Normalization
-    mg = quantile(vec(g), 0.95) # Normalization
-    mb = quantile(vec(b), 0.95) # Normalization
-    complement.(RGB.(clamp01nan.(r/mr), clamp01nan.(g/mg), clamp01nan.(b/mb)))
+""" Join RGB channels into a single RGBImage. """
+function join_channels(images::Dict{RGBColor,GrayImage}, mode::Val{RgbMode})::RGBImage
+    r, g, b = images[RGB(1,0,0)], images[RGB(0,1,0)], images[RGB(0,0,1)]
+    return complement.(RGB.(r, g, b))
 end
 
 """ Core string art generation loop. Produces ordered chords for image approximation. """
@@ -174,7 +172,7 @@ function run_algorithm(input::GrayImage, args::DefaultArgs)::Vector{Chord}
         @debug "Error calculated" idx, error
 
         @debug "Updating images and position..."
-        input .+= img
+        add_imgs!(input, img)
         push!(output, chord)
 
         # don't draw the same chord again
@@ -182,7 +180,7 @@ function run_algorithm(input::GrayImage, args::DefaultArgs)::Vector{Chord}
         # use the second point of the chord as the next pin
         pin = (chord.first == pin) ? chord.second : chord.first
     end
-    output
+    return output
 end
 
 """ Generate `n` evenly spaced points around a circle on a square canvas. """
@@ -195,7 +193,7 @@ function gen_pins(pins::Int, size::Int)::Vector{Point}
     phi = deg2rad.(0:interval:360)
     coords = radius .* exp.(phi .* 1im)
     # add center to coords and round the values
-    round.(coords .+ center) |> unique
+    return round.(coords .+ center) |> unique
 end
 
 """ Generate valid chords from a given point `p` to other canvas points. """
@@ -203,7 +201,7 @@ function gen_chords(p::Point, points::Vector{Point}, size::Int)::Vector{Chord}
     # exclude small chords
     threshold = size * SMALL_CHORD_CUTOFF
     # line connecting a point to all other neighbors / canvas pins
-    [to_chord(p, q) for q in points if abs(p - q) > threshold]
+    return [to_chord(p, q) for q in points if abs(p - q) > threshold]
 end
 
 """ Create an ordered chord (pair of points). """
@@ -229,7 +227,7 @@ end
                      round(Int, real(q)), round(Int, imag(q)), strength)
 
     # gaussian filter to smooth the line
-    imfilter(m, Kernel.gaussian(blur))
+    return imfilter(m, Kernel.gaussian(blur))
 end
 
 """ Draw a line between two points using Bresenham's line algorithm. """
@@ -290,19 +288,30 @@ function bresenham_line!(img::Matrix{Gray{N0f8}}, x0::Int, y0::Int, x1::Int, y1:
 end
 
 """ Find best chord that minimizes difference to target image. """
-function select_best_chord(img::GrayImage, curves::Vector{GrayImage})::Tuple{Float32,Int}
-    chunks = [i:min(i + div(length(curves), nthreads()) - 1, length(curves)) for i in 1:div(length(curves), nthreads()):length(curves)]
+function select_best_chord(img::GrayImage, chord::Vector{GrayImage})::Tuple{Float64,Int}
+    nchords = length(chord)
+    chunks  = [i:min(i + div(nchords, nthreads()) - 1, nchords) for i in 1:div(nchords, nthreads()):nchords]
 
     cimg = complement.(img)
-    errors = fill(Inf32, length(curves))
+    errors = fill(Inf32, length(chord))
     # Use batch processing for better cache efficiency
     @threads for t in eachindex(chunks)
         for i in chunks[t]
-            @inbounds errors[i] = Images.ssd(cimg, curves[i])
+            @inbounds errors[i] = Images.ssd(cimg, chord[i])
         end
     end
-    findmin(errors)
+    return findmin(errors)
 end
+
+
+""" Safely inplace add two grayscale images, handling overflow for N0f8 values. """
+function add_imgs!(dst::GrayImage, src::GrayImage)
+    @inbounds for i in eachindex(dst, src)
+        dst[i] = min(float32(dst[i]) + float32(src[i]), 1.0) |> Gray{N0f8}
+    end
+    return dst
+end
+
 
 """ Add a frame to the gif sequence. """
 function save_frame(img::RGBImage, gif::GifWrapper)
@@ -319,30 +328,30 @@ end
 """ Initialize gif wrapper for given step count and color mode. """
 function gen_gif_wrapper(args::Dict)::GifWrapper
     if !args["gif"]
-        return GifWrapper(Array{RGB{Float32}}(undef, 0, 0, 0), 0)
+        return GifWrapper(Array{RGBColor}(undef, 0, 0, 0), 0)
     end
     n_colors = length(args["colors"])
     n_frames = n_colors * div(args["steps"], GIF_INTERVAL)
-    frames = Array{RGB{Float32}}(undef, args["size"], args["size"], n_frames)
-    GifWrapper(frames, 1)
+    frames = Array{RGBColor}(undef, args["size"], args["size"], n_frames)
+    return GifWrapper(frames, 1)
 end
 
 """ Generate SVG header with specified size. """
 function svg_header(args::DefaultArgs)::String
     size = args["size"]
     blur = args["blur"]
-    """<svg xmlns="http://www.w3.org/2000/svg" width="$size" height="$size" viewBox="0 0 $size $size">
+    return """<svg xmlns="http://www.w3.org/2000/svg" width="$size" height="$size" viewBox="0 0 $size $size">
     <filter id="blur">
         <feGaussianBlur stdDeviation="$blur" />
     </filter>"""
 end
 
 """ Draw a line in SVG format. """
-function draw_line(chord::Chord, color::RGB{Float32}, args::DefaultArgs)::String
+function draw_line(chord::Chord, color::RGBColor, args::DefaultArgs)::String
     x1, x2 = imag(chord.first), imag(chord.second)
     y1, y2 = real(chord.first), real(chord.second)
     width = @sprintf("%.2f", args["line-strength"] / 100)
-    """<line x1="$x1" x2="$x2" y1="$y1" y2="$y2" stroke="#$(hex(color))" stroke-width="$width" filter="url(#blur)"/>"""
+    return """<line x1="$x1" x2="$x2" y1="$y1" y2="$y2" stroke="#$(hex(color))" stroke-width="$width" filter="url(#blur)"/>"""
 end
 
 """ Write svg to disk. """
@@ -381,7 +390,7 @@ function plot_chords(input::GrayImage, args::DefaultArgs)::GrayImage
 
     @debug "Plotting chords"
     for chord in chords
-        input .+= gen_img(chord, args)
+        add_imgs!(input, gen_img(chord, args))
     end
 
     @debug "Done"
@@ -392,7 +401,5 @@ end
 function plot_color(input::Vector{GrayImage}, args::DefaultArgs)::GrayImage
     return input[1]
 end
-
-
 
 end
