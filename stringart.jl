@@ -214,24 +214,28 @@ end
 """ Generate grayscale image representing a line between two points. """
 @memoize Dict function gen_img(chord::Chord, args::DefaultArgs)::GrayImage
     # extract parameters from cli args
-    size, strength, blur = args["size"], args["line-strength"] / 100, args["blur"]
+    size, blur = args["size"], args["blur"]
+    strength = convert(N0f8, args["line-strength"] / 100)
 
-    # get first point and last point
+    # get endpoints
     p, q = chord
 
-    # Create an empty image
+    # create an empty image with pre-allocated zeros
     m = zeros(Gray{N0f8}, size, size)
 
     # Draw the line using Bresenham's algorithm
-    bresenham_line!(m, round(Int, real(p)), round(Int, imag(p)),
-                     round(Int, real(q)), round(Int, imag(q)), strength)
+    bresenham_line!(m,
+                    round(Int, real(p)), round(Int, imag(p)),
+                    round(Int, real(q)), round(Int, imag(q)),
+                    strength)
 
     # gaussian filter to smooth the line
-    return imfilter(m, Kernel.gaussian(blur))
+    # return imfilter(m, Kernel.gaussian(blur))
+    return m
 end
 
 """ Draw a line between two points using Bresenham's line algorithm. """
-function bresenham_line!(img::Matrix{Gray{N0f8}}, x0::Int, y0::Int, x1::Int, y1::Int, strength::Float64)
+function bresenham_line!(img::Matrix{Gray{N0f8}}, x0::Int, y0::Int, x1::Int, y1::Int, strength::N0f8)
     # Ensure coordinates are within image bounds
     height, width = size(img)
     x0 = clamp(x0, 1, width)
@@ -268,11 +272,11 @@ function bresenham_line!(img::Matrix{Gray{N0f8}}, x0::Int, y0::Int, x1::Int, y1:
         # If steep, plot (y,x) instead of (x,y)
         if steep
             if 1 <= y <= width && 1 <= x <= height
-                img[x, y] = strength
+                @inbounds img[x, y] = strength
             end
         else
             if 1 <= x <= width && 1 <= y <= height
-                img[y, x] = strength
+                @inbounds img[y, x] = strength
             end
         end
 
@@ -288,16 +292,19 @@ function bresenham_line!(img::Matrix{Gray{N0f8}}, x0::Int, y0::Int, x1::Int, y1:
 end
 
 """ Find best chord that minimizes difference to target image. """
-function select_best_chord(img::GrayImage, chord::Vector{GrayImage})::Tuple{Float64,Int}
-    nchords = length(chord)
-    chunks  = [i:min(i + div(nchords, nthreads()) - 1, nchords) for i in 1:div(nchords, nthreads()):nchords]
+function select_best_chord(img::GrayImage, chords::Vector{GrayImage})::Tuple{Float64,Int}
+    nchords = length(chords)
+    # Create more balanced chunks based on available threads
+    chunks = [i:min(i + div(nchords, nthreads()) - 1, nchords) for i in 1:div(nchords, nthreads()):nchords]
 
+    # Pre-allocate error array
     cimg = complement.(img)
-    errors = fill(Inf32, length(chord))
-    # Use batch processing for better cache efficiency
+    errors = fill(Inf32, length(chords))
+
+    # Parallelize the error calculation
     @threads for t in eachindex(chunks)
         for i in chunks[t]
-            @inbounds errors[i] = Images.ssd(cimg, chord[i])
+            @inbounds errors[i] = @fastmath Images.ssd(cimg, chords[i])
         end
     end
     return findmin(errors)
@@ -306,8 +313,9 @@ end
 
 """ Safely inplace add two grayscale images, handling overflow for N0f8 values. """
 function add_imgs!(dst::GrayImage, src::GrayImage)
-    @inbounds for i in eachindex(dst, src)
-        dst[i] = min(float32(dst[i]) + float32(src[i]), 1.0) |> Gray{N0f8}
+    @fastmath @inbounds @simd for i in eachindex(dst, src)
+        val = Float32(dst[i]) + Float32(src[i])
+        dst[i] = val > 1.0f0 ? Gray{N0f8}(1.0f0) : Gray{N0f8}(val)
     end
     return dst
 end
