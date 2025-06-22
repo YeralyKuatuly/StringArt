@@ -9,7 +9,7 @@ using Printf
 using Random
 using Statistics
 
-const Point = ComplexF64
+const Point = ComplexF32
 const Chord = Pair{Point,Point}
 const GrayImage = Matrix{Float32}
 const RGBImage = Matrix{RGB{Float32}}
@@ -215,41 +215,78 @@ end
 
 """ Generate grayscale image representing a line between two points. """
 @memoize Dict function gen_img(chord::Chord, args::DefaultArgs)::GrayImage
-    # calculate the linear and angular coefficient of line (b-a)
+    # extract parameters from cli args
     size, strength, blur = args["size"], args["line-strength"] / 100, args["blur"]
 
-    # calculate line / chord points
+    # get first point and last point
     p, q = chord
 
-    # can't generate a line if both points are the same
-    if isapprox(real(p), real(q), rtol=1e-3)
-        p, q = p - 0.5, q + 0.5
-    end
-    a, b = get_coefficients(p, q)
+    # Create an empty image
+    m = zeros(Gray{N0f8}, size, size)
 
-    x = LinRange(real(p), real(q), size)
-    y = clamp.(a .* x .+ b, 1, size)
-
-    # convert to the corresponding pixel position
-    x = round.(Int, x)
-    y = round.(Int, y)
-
-    m = zeros(Gray{Float32}, size, size)
-    @inbounds for (x, y) in zip(x,y)
-        m[x,y] = strength
-    end
+    # Draw the line using Bresenham's algorithm
+    bresenham_line!(m, round(Int, real(p)), round(Int, imag(p)),
+                     round(Int, real(q)), round(Int, imag(q)), strength)
 
     # gaussian filter to smooth the line
-    # imfilter(m, Kernel.gaussian(blur))
-    return m
+    imfilter(m, Kernel.gaussian(blur))
 end
 
-""" Get slope and intercept of the line between two points. """
-function get_coefficients(p::Point, q::Point)::Tuple{Float64,Float64}
-    # calculate line (q-p) coefficient
-    a = clamp(tan(angle(p - q)), -1000.0, 1000.0)
-    b = (imag(p + q) - real(p + q) * a) / 2
-    return (a, b)
+""" Draw a line between two points using Bresenham's line algorithm. """
+function bresenham_line!(img::Matrix{Gray{N0f8}}, x0::Int, y0::Int, x1::Int, y1::Int, strength::Float64)
+    # Ensure coordinates are within image bounds
+    height, width = size(img)
+    x0 = clamp(x0, 1, width)
+    y0 = clamp(y0, 1, height)
+    x1 = clamp(x1, 1, width)
+    y1 = clamp(y1, 1, height)
+
+    # Calculate line parameters
+    steep = abs(y1 - y0) > abs(x1 - x0)
+
+    # If the line is steep, transpose the image and coordinates
+    if steep
+        x0, y0 = y0, x0
+        x1, y1 = y1, x1
+    end
+
+    # Ensure x0 <= x1
+    if x0 > x1
+        x0, x1 = x1, x0
+        y0, y1 = y1, y0
+    end
+
+    # Calculate deltas and initial error
+    dx = x1 - x0
+    dy = abs(y1 - y0)
+    err = div(dx, 2)
+
+    # Determine step direction
+    y_step = y0 < y1 ? 1 : -1
+    y = y0
+
+    # Draw the line pixel by pixel
+    for x in x0:x1
+        # If steep, plot (y,x) instead of (x,y)
+        if steep
+            if 1 <= y <= width && 1 <= x <= height
+                img[x, y] = strength
+            end
+        else
+            if 1 <= x <= width && 1 <= y <= height
+                img[y, x] = strength
+            end
+        end
+
+        # Update error and possibly y coordinate
+        err -= dy
+        if err < 0
+            y += y_step
+            err += dx
+        end
+    end
+
+    return img
 end
 
 """ Find best chord that minimizes difference to target image. """
@@ -355,5 +392,7 @@ end
 function plot_color(input::Vector{GrayImage}, args::DefaultArgs)::GrayImage
     return input[1]
 end
+
+
 
 end
