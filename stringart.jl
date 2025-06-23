@@ -23,7 +23,7 @@ const RANDOMIZED_PIN_INTERVAL = 100
 const SMALL_CHORD_CUTOFF = 0.10
 const EXCLUDE_REPEATED_PINS = false
 
-# initialize cache
+# cache needed to store generated chords (very expensive to compute)
 const lru = LRU{Chord, GrayImage}(maxsize=180 * 180)
 
 @enum StringArtMode GrayscaleMode RgbMode PaletteMode
@@ -94,7 +94,6 @@ function load_image(image_path::String, size::Int, colors::Colors, mode:: Val{Pa
     layers = [zeros(Float64, size, size) for _ in eachindex(colors)]
     for (idx, color) in enumerate(colors)
         layers[idx] = clamp01nan.(10.0 ./ (1.0 .+ distance.(img, color)))
-        save("$(hex(color))_araw.png", complement.(layers[idx]))
     end
     return [complement.(layer) for layer in layers]
 end
@@ -120,7 +119,6 @@ function run(input::Vector{GrayImage}, args::DefaultArgs)::Tuple{RGBImage,String
         for chord in run_algorithm(img, args)
             push!(chords, (chord, color))
         end
-        save("$(hex(color))_input.png", complement.(img))
     end
     shuffle!(chords)
 
@@ -156,6 +154,7 @@ function run(input::Vector{GrayImage}, args::DefaultArgs)::Tuple{RGBImage,String
 end
 
 
+# A wrapper that dispatches based on the OperationType
 function join_channels(images::Dict{RGBColor,GrayImage}, mode:: StringArtMode)::RGBImage
     return join_channels(images, Val(mode))
 end
@@ -182,7 +181,6 @@ function join_channels(images::Dict{RGBColor,GrayImage}, mode::Val{PaletteMode})
 
     # Add each color layer with its respective intensity
     for (color, img) in images
-        save("$(hex(color))_out.png", complement.(img .* complement.(color)))
         color = complement.(color)
         for i in eachindex(img)
             intensity = Float64(img[i])
@@ -266,7 +264,7 @@ end
 
 """ Create an ordered chord (pair of points). """
 function to_chord(p::Point, q::Point)::Chord
-    # pair should be order so it can be searched
+    # pair should be ordered so it can be searched
     p, q = sort([p, q], by=x -> (real(x), imag(x)))
     return Pair(p, q)
 end
@@ -477,7 +475,7 @@ function loghelper(args::DefaultArgs)
     delta = abs(Dates.value(now - get!(args, "last_log_elapsed", now)) / 1e3)
     args["last_log_elapsed"] = now
 
-    return @sprintf("%6.2fs (+%6.2fs) => ", total, delta)
+    return @sprintf("%6.2fs (%+5.2fs) => ", total, delta)
 end
 
 end

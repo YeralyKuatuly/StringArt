@@ -14,36 +14,39 @@ function main()
     # parse command line arguments
     args = parse_cmd()
 
-    # verbose mode should use debug log level log level
+    # util function to add time data to log
+    ts() = loghelper(args)
+
+    # verbose mode should use debug log level
     if args["verbose"]
         ENV["JULIA_DEBUG"] = Main
     end
 
-    @info loghelper(args) * "Parsing command line arguments..."
+    @info ts() * "Parsing command line arguments..."
     args = args_postprocessing(args)
     input_path, output_path = args["input"], args["output"]
-    @debug "Parsed arguments: $args"
+    @debug ts() * "Parsed arguments: $args"
 
-    @info loghelper(args) * "Loading input image '$input_path'"
+    @info ts() * "Loading input image '$input_path'"
     inp = StringArt.load_image(input_path, args["size"], args["colors"], args["mode"])
 
-    @info loghelper(args) * "Running StringArt algorithm..."
+    @info ts() * "Running StringArt algorithm..."
     png, svg, gif = StringArt.run(inp, args)
 
-    @info loghelper(args) * "Saving final output '$output_path' as a PNG..."
+    @info ts() * "Saving final output '$output_path' as a PNG..."
     save(output_path * ".png", png)
 
     args["svg"] && let
-        @info loghelper(args) * "Saving final output '$output_path' as a SVG..."
+        @info ts() * "Saving final output '$output_path' as a SVG..."
         StringArt.save_svg(output_path, svg)
     end
 
     args["gif"] && let
-        @info loghelper(args) * "Saving final output '$output_path' as a GIF..."
+        @info ts() * "Saving final output '$output_path' as a GIF..."
         StringArt.save_gif(output_path, gif)
     end
 
-    @info loghelper(args) * "Done"
+    @info ts() * "Done"
 end
 
 function parse_cmd()
@@ -122,7 +125,7 @@ function get_palette(args::Dict{String,Any})::Vector{RGB{N0f8}}
     image_path = args["input"]
     @assert isfile(image_path) "Image file not found: $image_path"
     img = convert.(Lab{Float64}, Images.load(image_path))
-    # get collor palette with kmeans algorithm
+    # create a color palette using kmeans algorithm
     pixels = reshape(collect(channelview(img)), 3, :)
     result = kmeans(pixels, args["palette"], maxiter=100, display=:none)
     # convert back to RGB colors
@@ -132,7 +135,7 @@ end
 
 function args_postprocessing(args)::Dict{String,Any}
     if !isnothing(args["palette"])
-        # create a color pallet using the input image
+        # create a color palette using the input image
         args["colors"] = get_palette(args)
         args["mode"] = StringArt.PaletteMode
     elseif !isnothing(args["custom-colors"])
