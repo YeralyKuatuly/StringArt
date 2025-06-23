@@ -8,6 +8,7 @@ using LRUCache
 using Logging
 using Printf
 using Random
+using Statistics
 
 const Point = ComplexF64
 const Chord = Pair{Point,Point}
@@ -92,7 +93,7 @@ function load_image(image_path::String, size::Int, colors::Colors, mode:: Val{Pa
     # Create separate grayscale layer for each color
     layers = [zeros(Float64, size, size) for _ in eachindex(colors)]
     for (idx, color) in enumerate(colors)
-        layers[idx] = clamp01nan.(12.0 ./ (1.0 .+ distance.(img, color)))
+        layers[idx] = clamp01nan.(10.0 ./ (1.0 .+ distance.(img, color)))
         save("$(hex(color))_araw.png", complement.(layers[idx]))
     end
     return [complement.(layer) for layer in layers]
@@ -145,7 +146,7 @@ function run(input::Vector{GrayImage}, args::DefaultArgs)::Tuple{RGBImage,String
         # save gif frame
         if args["gif"] && n % GIF_INTERVAL == 0
             png = join_channels(images, args["mode"])
-            save_frame(complement.(png), gif)
+            save_frame(png, gif)
         end
     end
     push!(svg, "</svg>")
@@ -192,11 +193,11 @@ function join_channels(images::Dict{RGBColor,GrayImage}, mode::Val{PaletteMode})
     end
 
     # Normalize the RGB values to the range [0, 1]
-    max_val = maximum([maximum(r), maximum(g), maximum(b), 1])
+    max_val = max(quantile(vec(r), 0.99), quantile(vec(g), 0.99), quantile(vec(b), 0.99), 1)
     r ./= max_val
     g ./= max_val
     b ./= max_val
-    return complement.(RGB.(r, g, b))
+    return complement.(RGB.(clamp01nan.(r), clamp01nan.(g), clamp01nan.(b)))
 end
 
 """ Core string art generation loop. Produces ordered chords for image approximation. """
@@ -476,7 +477,7 @@ function loghelper(args::DefaultArgs)
     delta = abs(Dates.value(now - get!(args, "last_log_elapsed", now)) / 1e3)
     args["last_log_elapsed"] = now
 
-    return @sprintf("%06.2fs (+%05.2fs) => ", total, delta)
+    return @sprintf("%6.2fs (+%6.2fs) => ", total, delta)
 end
 
 end
