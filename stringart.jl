@@ -4,10 +4,9 @@ using Base.Threads: @threads, nthreads
 using FileIO
 using Images
 using Logging
-using Memoize
 using Printf
 using Random
-using Statistics
+using LRUCache
 
 const Point = ComplexF64
 const Chord = Pair{Point,Point}
@@ -21,6 +20,9 @@ const GIF_INTERVAL = 50
 const RANDOMIZED_PIN_INTERVAL = 100
 const SMALL_CHORD_CUTOFF = 0.10
 const EXCLUDE_REPEATED_PINS = false
+
+# initialize cache
+const lru = LRU{Chord, GrayImage}(maxsize=180 * 180)
 
 @enum StringArtMode GrayscaleMode RgbMode
 
@@ -159,16 +161,15 @@ function run_algorithm(input::GrayImage, args::DefaultArgs)::Vector{Chord}
 
         @debug "Generating chord images..."
         chords = pin2chords[pin]
-        imgs = [gen_img(c, args) for c in chords]
 
-        if EXCLUDE_REPEATED_PINS && length(imgs) == 0
+        if EXCLUDE_REPEATED_PINS && length(chords) == 0
             @debug "No chords left, breaking..."
             break
         end
 
         @debug "Calculating error in chords..."
-        error, idx = select_best_chord(input, imgs)
-        chord, img = chords[idx], imgs[idx]
+        error, idx = select_best_chord(input, chords, args)
+        chord, img = chords[idx], gen_img(chords[idx], args)
         @debug "Error calculated" idx, error
 
         @debug "Updating images and position..."
@@ -211,27 +212,48 @@ function to_chord(p::Point, q::Point)::Chord
     return Pair(p, q)
 end
 
+""" Find best chord that minimizes difference to target image. """
+function select_best_chord(img::GrayImage, chords::Vector{Chord}, args::DefaultArgs)::Tuple{Float64,Int}
+    nchords = length(chords)
+    # Create more balanced chunks based on available threads
+    chunks = [i:min(i + div(nchords, nthreads()) - 1, nchords) for i in 1:div(nchords, nthreads()):nchords]
+
+    # Pre-allocate error array
+    cimg = complement.(img)
+    errors = fill(Inf32, length(chords))
+
+    # Parallelize the error calculation
+    @threads for t in eachindex(chunks)
+        for i in chunks[t]
+            chord_img = gen_img(chords[i], args)
+            @inbounds errors[i] = @fastmath Images.ssd(cimg, chord_img)
+        end
+    end
+    return findmin(errors)
+end
+
 """ Generate grayscale image representing a line between two points. """
-@memoize Dict function gen_img(chord::Chord, args::DefaultArgs)::GrayImage
-    # extract parameters from cli args
-    size, blur = args["size"], args["blur"]
-    strength = convert(N0f8, args["line-strength"] / 100)
+function gen_img(chord::Chord, args::DefaultArgs)::GrayImage
+    get!(lru, chord) do
+        # extract parameters from cli args
+        size, blur = args["size"], args["blur"]
+        strength = convert(N0f8, args["line-strength"] / 100)
 
-    # get endpoints
-    p, q = chord
+        # get endpoints
+        p, q = chord
 
-    # create an empty image with pre-allocated zeros
-    m = zeros(Gray{N0f8}, size, size)
+        # create an empty image with pre-allocated zeros
+        m = zeros(Gray{N0f8}, size, size)
 
-    # Draw the line using Bresenham's algorithm
-    bresenham_line!(m,
-                    round(Int, real(p)), round(Int, imag(p)),
-                    round(Int, real(q)), round(Int, imag(q)),
-                    strength)
+        # Draw the line using Bresenham's algorithm
+        bresenham_line!(m,
+                        round(Int, real(p)), round(Int, imag(p)),
+                        round(Int, real(q)), round(Int, imag(q)),
+                        strength)
 
-    # gaussian filter to smooth the line
-    # return imfilter(m, Kernel.gaussian(blur))
-    return m
+        # gaussian filter to smooth the line
+        return imfilter(m, Kernel.gaussian(blur))
+    end
 end
 
 """ Draw a line between two points using Bresenham's line algorithm. """
@@ -290,26 +312,6 @@ function bresenham_line!(img::Matrix{Gray{N0f8}}, x0::Int, y0::Int, x1::Int, y1:
 
     return img
 end
-
-""" Find best chord that minimizes difference to target image. """
-function select_best_chord(img::GrayImage, chords::Vector{GrayImage})::Tuple{Float64,Int}
-    nchords = length(chords)
-    # Create more balanced chunks based on available threads
-    chunks = [i:min(i + div(nchords, nthreads()) - 1, nchords) for i in 1:div(nchords, nthreads()):nchords]
-
-    # Pre-allocate error array
-    cimg = complement.(img)
-    errors = fill(Inf32, length(chords))
-
-    # Parallelize the error calculation
-    @threads for t in eachindex(chunks)
-        for i in chunks[t]
-            @inbounds errors[i] = @fastmath Images.ssd(cimg, chords[i])
-        end
-    end
-    return findmin(errors)
-end
-
 
 """ Safely inplace add two grayscale images, handling overflow for N0f8 values. """
 function add_imgs!(dst::GrayImage, src::GrayImage)
