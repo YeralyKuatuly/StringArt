@@ -19,7 +19,7 @@ const DefaultArgs = Dict{String,Any}
 
 const GIF_INTERVAL = 50
 const RANDOMIZED_PIN_INTERVAL = 100
-const SMALL_CHORD_CUTOFF = 0.05
+const SMALL_CHORD_CUTOFF = 0.10
 const EXCLUDE_REPEATED_PINS = false
 
 # initialize cache
@@ -81,9 +81,6 @@ function load_image(image_path::String, size::Int, colors::Colors, mode:: Val{Pa
     img = crop_to_square(img)
     img = Images.imresize(img, size, size)
 
-    # Convert the image to grayscale for later use
-    grey_image = Gray{N0f8}.(img)
-
     # Convert the Image and colors to Lab space for better color comparison
     img = convert.(Lab{Float64}, img)
     colors = convert.(Lab{Float64}, colors)
@@ -92,17 +89,11 @@ function load_image(image_path::String, size::Int, colors::Colors, mode:: Val{Pa
         return sqrt((pixel_lab.l - target_lab.l)^2 + (pixel_lab.a - target_lab.a)^2 + (pixel_lab.b - target_lab.b)^2)
     end
 
-    # Map each pixel to the closest color in our palette
-    for i in eachindex(img)
-        closest_color = argmin([distance(img[i], c) for c in colors])
-        img[i] = colors[closest_color]
-    end
-
     # Create separate grayscale layer for each color
     layers = [zeros(Float64, size, size) for _ in eachindex(colors)]
     for (idx, color) in enumerate(colors)
-        mask = img .== color
-        layers[idx][mask] .= clamp01nan.(3.0 .* grey_image[mask])
+        layers[idx] = clamp01nan.(12.0 ./ (1.0 .+ distance.(img, color)))
+        save("$(hex(color))_araw.png", complement.(layers[idx]))
     end
     return [complement.(layer) for layer in layers]
 end
@@ -128,6 +119,7 @@ function run(input::Vector{GrayImage}, args::DefaultArgs)::Tuple{RGBImage,String
         for chord in run_algorithm(img, args)
             push!(chords, (chord, color))
         end
+        save("$(hex(color))_input.png", complement.(img))
     end
     shuffle!(chords)
 
@@ -189,6 +181,7 @@ function join_channels(images::Dict{RGBColor,GrayImage}, mode::Val{PaletteMode})
 
     # Add each color layer with its respective intensity
     for (color, img) in images
+        save("$(hex(color))_out.png", complement.(img .* complement.(color)))
         color = complement.(color)
         for i in eachindex(img)
             intensity = Float64(img[i])
