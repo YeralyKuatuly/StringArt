@@ -1,12 +1,13 @@
 module StringArt
 
 using Base.Threads: @threads, nthreads
+using Dates
 using FileIO
 using Images
+using LRUCache
 using Logging
 using Printf
 using Random
-using LRUCache
 
 const Point = ComplexF64
 const Chord = Pair{Point,Point}
@@ -31,6 +32,7 @@ export load_image
 export run
 export save_gif
 export save_svg
+export loghelper
 
 # debug functions
 export plot_pins
@@ -87,7 +89,7 @@ function run(input::Vector{GrayImage}, args::DefaultArgs)::Tuple{RGBImage,String
     # generate all chords to be draw in the canvas
     chords = Tuple[]
     for (color, img) in zip(args["colors"], input)
-        @info "Iterating image with color: #$(hex(color))"
+        @info loghelper(args) * "Iterating image with color: #$(hex(color))"
         for chord in run_algorithm(img, args)
             push!(chords, (chord, color))
         end
@@ -103,7 +105,7 @@ function run(input::Vector{GrayImage}, args::DefaultArgs)::Tuple{RGBImage,String
     # initialize an image for each color
     images = Dict(color=>zeros(N0f8, args["size"], args["size"]) for color in args["colors"])
 
-    @info "Rendering Chords"
+    @info loghelper(args) * "Rendering Chords"
     for (n, (chord, color)) in enumerate(chords)
         # add chord to png image
         img = gen_img(chord, args)
@@ -410,6 +412,15 @@ end
 """ Visual debug: returns first grayscale channel. Stub for color support. """
 function plot_color(input::Vector{GrayImage}, args::DefaultArgs)::GrayImage
     return input[1]
+end
+
+function loghelper(args::DefaultArgs)
+    now = Dates.now()
+    total = abs(Dates.value(now - get!(args, "start_elapsed", now)) / 1e3)
+    delta = abs(Dates.value(now - get!(args, "last_log_elapsed", now)) / 1e3)
+    args["last_log_elapsed"] = now
+
+    return @sprintf("%06.2f (%05.2f) => ", total, delta)
 end
 
 end
