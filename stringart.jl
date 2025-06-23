@@ -19,13 +19,13 @@ const DefaultArgs = Dict{String,Any}
 
 const GIF_INTERVAL = 50
 const RANDOMIZED_PIN_INTERVAL = 100
-const SMALL_CHORD_CUTOFF = 0.10
+const SMALL_CHORD_CUTOFF = 0.05
 const EXCLUDE_REPEATED_PINS = false
 
 # initialize cache
 const lru = LRU{Chord, GrayImage}(maxsize=180 * 180)
 
-@enum StringArtMode GrayscaleMode RgbMode
+@enum StringArtMode GrayscaleMode RgbMode PaletteMode
 
 export StringArtMode
 export load_image
@@ -70,6 +70,41 @@ function load_image(image_path::String, size::Int, colors::Colors, mode:: Val{Rg
     img = crop_to_square(img)
     img = Images.imresize(img, size, size)
     return [red.(img), green.(img), blue.(img)]
+end
+
+""" Load an image and create a set of grayscale images representing how well each pixel matches the colors in the palette. """
+function load_image(image_path::String, size::Int, colors::Colors, mode:: Val{PaletteMode})::Vector{GrayImage}
+    # Read the image and convert it to an array
+    @assert isfile(image_path) "Image file not found: $image_path"
+    img = Images.load(image_path)
+    # Resize the image to the specified dimensions
+    img = crop_to_square(img)
+    img = Images.imresize(img, size, size)
+
+    # Convert the image to grayscale for later use
+    grey_image = Gray{N0f8}.(img)
+
+    # Convert the Image and colors to Lab space for better color comparison
+    img = convert.(Lab{Float64}, img)
+    colors = convert.(Lab{Float64}, colors)
+
+    function distance(pixel_lab::Lab{Float64}, target_lab::Lab{Float64})::Float64
+        return sqrt((pixel_lab.l - target_lab.l)^2 + (pixel_lab.a - target_lab.a)^2 + (pixel_lab.b - target_lab.b)^2)
+    end
+
+    # Map each pixel to the closest color in our palette
+    for i in eachindex(img)
+        closest_color = argmin([distance(img[i], c) for c in colors])
+        img[i] = colors[closest_color]
+    end
+
+    # Create separate grayscale layer for each color
+    layers = [zeros(Float64, size, size) for _ in eachindex(colors)]
+    for (idx, color) in enumerate(colors)
+        mask = img .== color
+        layers[idx][mask] .= clamp01nan.(2.0 .* grey_image[mask])
+    end
+    return [complement.(layer) for layer in layers]
 end
 
 """ Crop rectangular image to a centered square. """
@@ -140,6 +175,34 @@ end
 """ Join RGB channels into a single RGBImage. """
 function join_channels(images::Dict{RGBColor,GrayImage}, mode::Val{RgbMode})::RGBImage
     r, g, b = images[RGB(1,0,0)], images[RGB(0,1,0)], images[RGB(0,0,1)]
+    return complement.(RGB.(r, g, b))
+end
+
+""" Add multiple color channels to create a composite RGB image with proper color blending. """
+function join_channels(images::Dict{RGBColor,GrayImage}, mode::Val{PaletteMode})::RGBImage
+    # Get dimensions from the first image
+    height, width = size(first(values(images)))
+
+    r = zeros(Float32, height, width)
+    g = zeros(Float32, height, width)
+    b = zeros(Float32, height, width)
+
+    # Add each color layer with its respective intensity
+    for (color, img) in images
+        color = complement.(color)
+        for i in eachindex(img)
+            intensity = Float64(img[i])
+            r[i] += intensity * color.r
+            b[i] += intensity * color.b
+            g[i] += intensity * color.g
+        end
+    end
+
+    # Normalize the RGB values to the range [0, 1]
+    max_val = maximum([maximum(r), maximum(g), maximum(b), 1])
+    r ./= max_val
+    g ./= max_val
+    b ./= max_val
     return complement.(RGB.(r, g, b))
 end
 
@@ -420,7 +483,7 @@ function loghelper(args::DefaultArgs)
     delta = abs(Dates.value(now - get!(args, "last_log_elapsed", now)) / 1e3)
     args["last_log_elapsed"] = now
 
-    return @sprintf("%06.2f (%05.2f) => ", total, delta)
+    return @sprintf("%06.2fs (+%05.2fs) => ", total, delta)
 end
 
 end
