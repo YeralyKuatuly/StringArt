@@ -102,7 +102,7 @@ function load_image(image_path::String, size::Int, colors::Colors, mode:: Val{Pa
     layers = [zeros(Float64, size, size) for _ in eachindex(colors)]
     for (idx, color) in enumerate(colors)
         mask = img .== color
-        layers[idx][mask] .= clamp01nan.(2.0 .* grey_image[mask])
+        layers[idx][mask] .= clamp01nan.(3.0 .* grey_image[mask])
     end
     return [complement.(layer) for layer in layers]
 end
@@ -423,8 +423,8 @@ end
 
 """ Draw a line in SVG format. """
 function draw_line(chord::Chord, color::RGBColor, args::DefaultArgs)::String
-    x1, x2 = imag(chord.first), imag(chord.second)
-    y1, y2 = real(chord.first), real(chord.second)
+    x1, y1 = real(chord.first), imag(chord.first)
+    x2, y2 = real(chord.second), imag(chord.second)
     width = @sprintf("%.2f", args["line-strength"] / 100)
     return """<line x1="$x1" x2="$x2" y1="$y1" y2="$y2" stroke="#$(hex(color))" stroke-width="$width" filter="url(#blur)"/>"""
 end
