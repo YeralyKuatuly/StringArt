@@ -43,16 +43,16 @@ Randomizing the pin position periodically (every N steps) tends to give better r
 Arguably the most critical part of the algorithm. You should minimize the error here and not any other metric (I lost a lot of time doing that...). The best function that I found was the squared difference between the source image and the line (but the performance takes a considerable hit here).
 
 **Excluding Already Visited Lines:**
-While excluding used lines each iteration improves performance, it results in a more diffuse and noisy image. In this implementation, visited lines are retained. If you prefer the noisy style, just uncomment the lines with `filter!`.
+While excluding used lines each iteration improves performance, it results in a more diffuse and noisy image. In this implementation, visited lines are retained. If you prefer the noisy style, just change the variable `EXCLUDE_REPEATED_PINS` to true.
 
 ### Requirements
 
 The Libraries:
 
 - ArgParse
-- Images
+- **Images**
 - Logging
-- Memoize
+- **LRUCache**
 
 ### Usage
 
@@ -67,10 +67,13 @@ $ julia -O3 -t 8 main.jl -s 720 --steps 2000 -i [input image] -o [output image]
 $ julia -O3 -t 8 main.jl -s 800 -i [input image] -o [output image]
 
 # RGB color mode
-$ julia -O3 -t 8 main.jl --color-mode -i [input image] -o [output image]
+$ julia -O3 -t 8 main.jl --rgb -i [input image] -o [output image]
 
 #  RGB color mode with custom colors
 $ julia -O3 -t 8 main.jl --custom-colors "#FFFF33,#33FFFF" -i [input image] -o [output image]
+
+#  RGB color using color palette (n = 4) extracted from the input image
+$ julia -O3 -t 8 main.jl --palette 4 -i [input image] -o [output image]
 
 # Saves GIF output
 $ julia -O3 -t 8 main.jl --gif -i [input image] -o [output image]
@@ -93,11 +96,11 @@ $ julia utils.jl -f plot_colors --colors "#FF0000" -i [input image] -o [output i
 ### Parameters
 
 ```bash
-usage: main.jl -i INPUT [-o OUTPUT] [--gif] [--svg] [--color-mode]
-               [-s SIZE] [-n PINS] [--steps STEPS]
-               [--line-strength LINE-STRENGTH] [--blur BLUR]
-               [--custom-colors CUSTOM-COLORS]
-               [--color-palette COLOR-PALETTE] [--verbose] [-h]
+usage: main.jl -i INPUT [-o OUTPUT] [--gif] [--svg] [-s SIZE]
+               [-n PINS] [--steps STEPS]
+               [--line-strength LINE-STRENGTH] [--blur BLUR] [--rgb]
+               [--custom-colors CUSTOM-COLORS] [--palette PALETTE]
+               [--verbose] [-h]
 
 StringArt - Convert images to string art
 
@@ -107,7 +110,6 @@ optional arguments:
                         "output")
   --gif                 Save output as a GIF
   --svg                 Save output as a SVG
-  --color-mode          RGB mode
   -s, --size SIZE       output image size in pixels (type: Int64,
                         default: 512)
   -n, --pins PINS       number of pins to use in canvas (type: Int64,
@@ -119,11 +121,14 @@ optional arguments:
                         Int64, default: 25)
   --blur BLUR           gaussian blur kernel size (type: Int64,
                         default: 1)
+  --rgb                 use basic RGB color mode (default: red, green,
+                        blue)
   --custom-colors CUSTOM-COLORS
-                        HEX code of colors to use in RGB mode
-  --color-palette USE-COLOR-PALETTE
-                        extract a color palette from the image to be
-                        used in color-mode (type: Int64)
+                        comma-separated HEX color codes for custom
+                        color strands (e.g. #FF0000,#00FF00)
+  --palette PALETTE     number of colors to extract as a palette from
+                        the input image (k-means clustering) (type:
+                        Int64)
   --verbose             verbose mode
   -h, --help            show this help message and exit
 
@@ -133,8 +138,6 @@ Example: julia main.jl -i input.jpg -o output --svg
 > keep the number of pins below 250 and the image size below 1000.
 
 > the number of iteration steps is dependent on the image size. For size between 500 and 800, 2000 iteration is more than enough.
-
-> GIF mode with custom colors RGB mode is not supported
 
 ### Gallery
 
@@ -174,9 +177,11 @@ Example: julia main.jl -i input.jpg -o output --svg
 
 ### TODO
 
-- [x] GIF mode
-- [x] Optimize Memory Usage
-- [x] Support Custom Colors in GIF mode
-- [x] Support SVG output
-- [ ] Enhance Image Contrast
+- [x] Write output image as GIF
+- [x] Write output image as SVG
+- [x] Optimize memory usage
+- [x] Support GIF in `--rgb` mode
+- [x] Use user provided colors (`--custom-colors` flag) to create the output image
+- [x] Use color palette (`--palette` flag) from input image to create the output image
+- [ ] Enhance Image Contrast (needed?)
 - [ ] Port Code to the GPU
