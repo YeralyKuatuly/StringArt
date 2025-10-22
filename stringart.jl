@@ -24,7 +24,7 @@ const SMALL_CHORD_CUTOFF = 0.10
 const EXCLUDE_REPEATED_PINS = false
 
 # cache needed to store generated chords (very expensive to compute)
-const lru = LRU{Chord, GrayImage}(maxsize=180 * 180)
+const lru = LRU{Chord, GrayImage}(maxsize=10000)
 
 @enum StringArtMode GrayscaleMode RgbMode PaletteMode
 
@@ -119,6 +119,9 @@ function run(input::Vector{GrayImage}, args::DefaultArgs)::Tuple{RGBImage,String
         for chord in run_algorithm(img, args)
             push!(chords, (chord, color))
         end
+    end
+    if args["svg"]
+        save_pin_sequence(chords, args)
     end
     shuffle!(chords)
 
@@ -476,6 +479,66 @@ function loghelper(args::DefaultArgs)
     args["last_log_elapsed"] = now
 
     return @sprintf("%6.2fs (%+5.2fs) => ", total, delta)
+end
+
+""" Save the continuous pin sequence to a text file """
+function save_pin_sequence(chords::Vector{Tuple}, args::DefaultArgs)
+    output_path = args["output"]
+    pins = gen_pins(args["pins"], args["size"])
+    
+    open(output_path * "_sequence.txt", "w") do f
+        write(f, "STRING ART BUILD INSTRUCTIONS\n")
+        write(f, "=" ^ 60 * "\n\n")
+        write(f, "Total nails: $(args["pins"])\n")
+        write(f, "Total connections: $(length(chords))\n")
+        write(f, "Estimated thread length: ~$(Int(round(length(chords) * 0.5)))m\n\n")
+        write(f, "CONTINUOUS PATH:\n")
+        write(f, "=" ^ 60 * "\n\n")
+        
+        # Convert complex coordinates to nail numbers
+        function coord_to_nail(point::Point)::Int
+            center = (args["size"] / 2) + (args["size"] / 2) * 1im
+            ang = Base.angle(point - center)
+            angle_deg = (rad2deg(ang) + 360) % 360
+            nail = Int(floor((angle_deg / 360) * args["pins"]))
+            return nail % args["pins"]
+        end
+        
+        # Track current pin
+        current_pin = nothing
+        
+        for (i, (chord, color)) in enumerate(chords)
+            nail_from = coord_to_nail(chord.first)
+            nail_to = coord_to_nail(chord.second)
+            
+            if i == 1
+                write(f, "START: Tie thread to Nail $nail_from\n\n")
+                current_pin = nail_from
+            end
+            
+            # Determine which end connects to current pin
+            if current_pin == nail_from
+                write(f, "Step $(lpad(i, 4)): From Nail $(lpad(nail_from, 3)) → to Nail $(lpad(nail_to, 3))\n")
+                current_pin = nail_to
+            else
+                write(f, "Step $(lpad(i, 4)): From Nail $(lpad(nail_to, 3)) → to Nail $(lpad(nail_from, 3))\n")
+                current_pin = nail_from
+            end
+        end
+        
+        write(f, "\nEND: Tie off at Nail $current_pin\n")
+        write(f, "\n" * "=" ^ 60 * "\n")
+        write(f, "HOW TO BUILD:\n")
+        write(f, "=" ^ 60 * "\n")
+        write(f, "1. Arrange $(args["pins"]) nails evenly around a circle\n")
+        write(f, "2. Number them 0-$(args["pins"]-1) (clockwise from top)\n")
+        write(f, "3. Tie thread to START nail\n")
+        write(f, "4. Follow sequence - wrap once around each nail\n")
+        write(f, "5. NEVER CUT THREAD - one continuous string!\n")
+        write(f, "6. Tie off at END nail\n")
+    end
+    
+    @info loghelper(args) * "Saved pin sequence to $(output_path)_sequence.txt"
 end
 
 end

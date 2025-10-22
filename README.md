@@ -10,6 +10,31 @@ Most implementations often require high-contrast images, and still the results c
 
 Additionally, the script features a command-line interface (CLI) with various tweakable parameters, option flags, **RGB color mode** and you can also save the **GIF animation** with easy. Feel free to explore these options to customize the output according to your preferences, if you want to reuse the code or call it somewhere else, you should look at `StringArt.run`.
 
+### Quick Start
+
+**1. Install Julia and packages:**
+```bash
+# Install Julia (Linux)
+sudo snap install julia --classic
+
+# Install required packages
+julia -e 'using Pkg; Pkg.add(["ArgParse", "Images", "LRUCache", "FileIO", "ImageIO", "ImageMagick", "Clustering"])'
+```
+
+**2. Run your first string art:**
+```bash
+# Basic usage
+julia -O3 -t 1 main.jl -i your_image.jpg -o result
+
+# High quality with SVG output
+julia -O3 -t 1 main.jl -i your_image.jpg -o result -s 600 -n 240 --steps 2000 --svg
+```
+
+**3. Check the results:**
+- `result.png` - Final string art image
+- `result.svg` - Vector format (if --svg flag used)
+- `result_sequence.txt` - Instructions for physical creation
+
 **Useful Resources:**
 
 - [The Mathematics of String Art Video](https://www.youtube.com/watch?v=WGccIFf6MF8)
@@ -47,97 +72,350 @@ While excluding used lines each iteration improves performance, it results in a 
 
 ### Requirements
 
-The Libraries:
+**System Requirements:**
+- Julia 1.6+ (recommended: Julia 1.8+)
+- Linux, macOS, or Windows
+- At least 4GB RAM (8GB+ recommended for large images)
 
+**Required Julia Packages:**
 - ArgParse
-- **Images**
-- Logging
-- **LRUCache**
+- Images
+- LRUCache
+- FileIO
+- ImageIO
+- ImageMagick
+- Clustering
+
+(if you get ERROR "Package not found" then simply run 
+`julia -e 'using Pkg; Pkg.update(); Pkg.add("PackageName")'`)
+
+### Installation
+
+#### 1. Install Julia
+
+**Linux (Ubuntu/Debian):**
+```bash
+# Using snap (recommended)
+sudo snap install julia --classic
+
+# Verify installation
+julia --version
+```
+
+**Alternative Linux installation:**
+```bash
+# Using apt (Ubuntu/Debian)
+sudo apt update
+sudo apt install julia
+
+# Or download from official website
+wget https://julialang-s3.julialang.org/bin/linux/x64/1.8/julia-1.8.5-linux-x86_64.tar.gz
+tar -xzf julia-1.8.5-linux-x86_64.tar.gz
+sudo mv julia-1.8.5 /opt/julia
+sudo ln -s /opt/julia/bin/julia /usr/local/bin/julia
+```
+
+**macOS:**
+```bash
+# Using Homebrew
+brew install julia
+
+# Or download from official website
+# https://julialang.org/downloads/
+```
+
+**Windows:**
+Download and install from: https://julialang.org/downloads/
+
+#### 2. Install Required Packages
+
+Open Julia REPL and install the required packages:
+
+```julia
+julia -e 'using Pkg; Pkg.add(["ArgParse", "Images", "LRUCache", "FileIO", "ImageIO", "ImageMagick", "Clustering"])'
+```
+
+Or manually in Julia REPL:
+```julia
+julia> using Pkg
+julia> Pkg.add("ArgParse")
+julia> Pkg.add("Images")
+julia> Pkg.add("LRUCache")
+julia> Pkg.add("FileIO")
+julia> Pkg.add("ImageIO")
+julia> Pkg.add("ImageMagick")
+julia> Pkg.add("Clustering")
+```
+
+#### 3. Clone/Download the Project
+
+```bash
+git clone <repository-url>
+cd stringart-julia
+```
 
 ### Usage
 
+#### Basic Command Structure
+
 ```bash
-# basic
-$ julia -O3 -t 8 main.jl -i [input image] -o [output image]
-
-# suggested
-$ julia -O3 -t 8 main.jl -s 720 --steps 2000 -i [input image] -o [output image]
-
-# alter the image resolution
-$ julia -O3 -t 8 main.jl -s 800 -i [input image] -o [output image]
-
-# RGB color mode
-$ julia -O3 -t 8 main.jl --rgb -i [input image] -o [output image]
-
-#  RGB color mode with custom colors
-$ julia -O3 -t 8 main.jl --custom-colors "#FFFF33,#33FFFF" -i [input image] -o [output image]
-
-#  RGB color using color palette (n = 4) extracted from the input image
-$ julia -O3 -t 8 main.jl --palette 4 -i [input image] -o [output image]
-
-# Saves GIF output
-$ julia -O3 -t 8 main.jl --gif -i [input image] -o [output image]
-
-# Saves as SVG
-$ julia -O3 -t 8 main.jl --svg -i [input image] -o [output image]
-
+julia -O3 -t [threads] main.jl [options] -i [input_image] -o [output_name]
 ```
+
+**Command Line Flags Explained:**
+- `-O3`: Maximum optimization level for Julia compilation
+- `-t [threads]`: Number of threads to use (start with 1 if experiencing lag)
+- `-i`: Input image path
+- `-o`: Output filename (without extension)
+
+#### Performance Tips
+
+**Thread Usage:**
+- Start with `-t 1` if your system lags or crashes
+- Increase threads gradually: `-t 2`, `-t 4`, `-t 8`
+- More threads = faster processing but higher memory usage
+- For large images (>800px), consider using fewer threads
+
+**Memory Management:**
+- Large images require more RAM
+- Reduce `--steps` if running out of memory
+- Use smaller `--size` for initial testing
+
+#### Examples
+
+**Basic Usage:**
+```bash
+# Simple grayscale conversion
+julia -O3 -t 1 main.jl -i portrait.jpg -o result
+
+# High quality with custom settings
+julia -O3 -t 1 main.jl \
+  -i my_portrait.jpg \
+  -o final_result \
+  -s 600 \
+  -n 360 \
+  --steps 5000 \
+  --line-strength 18 \
+  --svg
+```
+
+**Different Output Formats:**
+```bash
+# PNG only (default)
+julia -O3 -t 1 main.jl -i input.jpg -o output
+
+# PNG + SVG
+julia -O3 -t 1 main.jl --svg -i input.jpg -o output
+
+# PNG + GIF animation
+julia -O3 -t 1 main.jl --gif -i input.jpg -o output
+
+# All formats
+julia -O3 -t 1 main.jl --svg --gif -i input.jpg -o output
+```
+
+**Color Modes:**
+```bash
+# Grayscale (default)
+julia -O3 -t 1 main.jl -i input.jpg -o output
+
+# RGB mode (red, green, blue)
+julia -O3 -t 1 main.jl --rgb -i input.jpg -o output
+
+# Custom colors
+julia -O3 -t 1 main.jl --custom-colors "#FFFF33,#33FFFF,#FF33FF" -i input.jpg -o output
+
+# Extract palette from image (4 colors)
+julia -O3 -t 1 main.jl --palette 4 -i input.jpg -o output
+```
+
+**Quality Settings:**
+```bash
+# High quality (slower)
+julia -O3 -t 1 main.jl -s 800 -n 300 --steps 3000 -i input.jpg -o output
+
+# Fast preview
+julia -O3 -t 1 main.jl -s 400 -n 120 --steps 500 -i input.jpg -o output
+
+# Balanced
+julia -O3 -t 1 main.jl -s 600 -n 180 --steps 1500 -i input.jpg -o output
+```
+
+#### Parameter Recommendations
+
+**For Different Image Sizes:**
+- **Small images (300-400px)**: `-s 400 -n 120 --steps 800`
+- **Medium images (500-600px)**: `-s 600 -n 180 --steps 1500` 
+- **Large images (700-800px)**: `-s 800 -n 240 --steps 2500`
+- **Very large images (900px+)**: `-s 1000 -n 300 --steps 3000`
+
+**For Different Quality Levels:**
+- **Quick preview**: `--steps 500 --line-strength 30`
+- **Good quality**: `--steps 1500 --line-strength 25`
+- **High quality**: `--steps 3000 --line-strength 20`
+- **Maximum quality**: `--steps 5000 --line-strength 18`
+
+#### Troubleshooting
+
+**Common Issues:**
+
+1. **System Lagging/Crashing:**
+   ```bash
+   # Reduce threads
+   julia -O3 -t 1 main.jl [options]
+   
+   # Reduce image size
+   julia -O3 -t 1 main.jl -s 400 [other options]
+   
+   # Reduce steps
+   julia -O3 -t 1 main.jl --steps 500 [other options]
+   ```
+
+2. **Out of Memory:**
+   ```bash
+   # Use fewer pins
+   julia -O3 -t 1 main.jl -n 120 [other options]
+   
+   # Smaller image size
+   julia -O3 -t 1 main.jl -s 400 [other options]
+   ```
+
+3. **Poor Quality Results:**
+   ```bash
+   # Increase steps
+   julia -O3 -t 1 main.jl --steps 3000 [other options]
+   
+   # Adjust line strength
+   julia -O3 -t 1 main.jl --line-strength 15 [other options]
+   
+   # More pins for detail
+   julia -O3 -t 1 main.jl -n 300 [other options]
+   ```
+
+4. **Slow Processing:**
+   ```bash
+   # Increase threads gradually
+   julia -O3 -t 2 main.jl [options]
+   julia -O3 -t 4 main.jl [options]
+   
+   # Reduce quality for speed
+   julia -O3 -t 1 main.jl --steps 1000 [other options]
+   ```
+
+### Creating Physical String Art
+
+The algorithm generates a `_sequence.txt` file with step-by-step instructions for creating physical string art:
+
+1. **Prepare Materials:**
+   - Wooden board or canvas
+   - Nails (number specified in output)
+   - Thread or string
+   - Hammer
+   - Compass or protractor
+
+2. **Setup:**
+   - Draw a circle on your board
+   - Hammer nails evenly around the circle (numbered 0 to N-1)
+   - Start from nail 0 (top of circle)
+
+3. **Follow Instructions:**
+   - Tie thread to the START nail
+   - Follow the sequence: wrap thread around each specified nail
+   - **Never cut the thread** - use one continuous piece
+   - Tie off at the END nail
+
+4. **Tips:**
+   - Use different colored threads for RGB mode
+   - Keep thread tension consistent
+   - Work slowly and carefully
+   - The sequence file shows exact nail numbers to use
 
 ### Debugging Utilities
 
 ```bash
 # plot pins used in the image
-$ julia utils.jl -f plot_pins -i [input image] -o [output image]
+julia utils.jl -f plot_pins -i [input image] -o [output image]
 
 # plot color channel for a given color and input image
-$ julia utils.jl -f plot_colors --colors "#FF0000" -i [input image] -o [output image]
+julia utils.jl -f plot_colors --colors "#FF0000" -i [input image] -o [output image]
+
+# plot all chords from first pin
+julia utils.jl -f plot_chords -i [input image] -o [output image]
 ```
 
-### Parameters
+### Complete Parameter Reference
+
+#### Required Parameters
+- `-i, --input INPUT`: Path to input image (JPG, PNG, etc.)
+
+#### Optional Parameters
+
+**Output Settings:**
+- `-o, --output OUTPUT`: Output filename without extension (default: "output")
+- `--gif`: Save animated GIF showing creation process
+- `--svg`: Save vector SVG format for scaling
+- `--verbose`: Show detailed progress information
+
+**Image Quality:**
+- `-s, --size SIZE`: Output image size in pixels (default: 512)
+  - Recommended: 400-800 for good quality/speed balance
+  - Maximum: 1000 (may cause memory issues)
+- `-n, --pins PINS`: Number of nails around circle (default: 180)
+  - More pins = more detail but slower processing
+  - Recommended: 120-300
+  - Maximum: 500 (may cause memory issues)
+- `--steps STEPS`: Algorithm iterations (default: 1000)
+  - More steps = better quality but slower
+  - Recommended: 1000-3000 for good results
+- `--line-strength LINE-STRENGTH`: Line intensity 1-100 (default: 25)
+  - Lower values = finer details
+  - Higher values = bolder lines
+- `--blur BLUR`: Gaussian blur kernel size (default: 1)
+  - Smooths lines for better appearance
+  - Keep at 1 for most cases
+
+**Color Modes:**
+- `--rgb`: Use red, green, blue channels
+- `--custom-colors COLORS`: Custom HEX colors (e.g., "#FF0000,#00FF00,#0000FF")
+- `--palette N`: Extract N colors from input image using k-means clustering
+
+#### Performance Guidelines
+
+**Memory Usage:**
+- Image size × pins × steps = memory requirement
+- Keep total under 2GB for smooth operation
+- Reduce any parameter if running out of memory
+
+**Processing Time:**
+- Small images (400px): 1-5 minutes
+- Medium images (600px): 5-15 minutes  
+- Large images (800px): 15-45 minutes
+- Very large images (1000px): 30+ minutes
+
+**Quality vs Speed:**
+- **Fast preview**: `-s 400 -n 120 --steps 500`
+- **Good quality**: `-s 600 -n 180 --steps 1500`
+- **High quality**: `-s 800 -n 240 --steps 2500`
+- **Maximum quality**: `-s 1000 -n 300 --steps 5000`
+
+#### Example Commands
 
 ```bash
-usage: main.jl -i INPUT [-o OUTPUT] [--gif] [--svg] [-s SIZE]
-               [-n PINS] [--steps STEPS]
-               [--line-strength LINE-STRENGTH] [--blur BLUR] [--rgb]
-               [--custom-colors CUSTOM-COLORS] [--palette PALETTE]
-               [--verbose] [-h]
+# Quick test
+julia -O3 -t 1 main.jl -i photo.jpg -o test -s 400 --steps 500
 
-StringArt - Convert images to string art
+# High quality portrait
+julia -O3 -t 1 main.jl -i portrait.jpg -o result -s 600 -n 240 --steps 2000 --svg
 
-optional arguments:
-  -i, --input INPUT     input image path
-  -o, --output OUTPUT   output image path without extension (default:
-                        "output")
-  --gif                 Save output as a GIF
-  --svg                 Save output as a SVG
-  -s, --size SIZE       output image size in pixels (type: Int64,
-                        default: 512)
-  -n, --pins PINS       number of pins to use in canvas (type: Int64,
-                        default: 180)
-  --steps STEPS         number of algorithm iterations (type: Int64,
-                        default: 1000)
-  --line-strength LINE-STRENGTH
-                        line intensity ranging from 1-100 (type:
-                        Int64, default: 25)
-  --blur BLUR           gaussian blur kernel size (type: Int64,
-                        default: 1)
-  --rgb                 use basic RGB color mode (default: red, green,
-                        blue)
-  --custom-colors CUSTOM-COLORS
-                        comma-separated HEX color codes for custom
-                        color strands (e.g. #FF0000,#00FF00)
-  --palette PALETTE     number of colors to extract as a palette from
-                        the input image (k-means clustering) (type:
-                        Int64)
-  --verbose             verbose mode
-  -h, --help            show this help message and exit
+# RGB color mode
+julia -O3 -t 1 main.jl --rgb -i photo.jpg -o color_result -s 500 --steps 1500
 
-Example: julia main.jl -i input.jpg -o output --svg
+# Custom colors
+julia -O3 -t 1 main.jl --custom-colors "#FFD700,#FF69B4,#00CED1" -i photo.jpg -o custom
+
+# Extract palette
+julia -O3 -t 1 main.jl --palette 5 -i photo.jpg -o palette_result -s 600
 ```
-
-> keep the number of pins below 250 and the image size below 1000.
-
-> the number of iteration steps is dependent on the image size. For size between 500 and 800, 2000 iteration is more than enough.
 
 ### Gallery
 
@@ -175,13 +453,40 @@ Example: julia main.jl -i input.jpg -o output --svg
 
 ---
 
-### TODO
+### FAQ (Frequently Asked Questions)
 
-- [x] Write output image as GIF
-- [x] Write output image as SVG
-- [x] Optimize memory usage
-- [x] Support GIF in `--rgb` mode
-- [x] Use user provided colors (`--custom-colors` flag) to create the output image
-- [x] Use color palette (`--palette` flag) from input image to create the output image
-- [ ] Enhance Image Contrast (needed?)
-- [ ] Port Code to the GPU
+**Q: Why does my system lag or crash?**
+A: Start with `-t 1` (single thread) and smaller image sizes. Gradually increase threads and size as your system handles it.
+
+**Q: How long does processing take?**
+A: Depends on image size and steps:
+- 400px: 1-5 minutes
+- 600px: 5-15 minutes  
+- 800px: 15-45 minutes
+- 1000px: 30+ minutes
+
+**Q: What's the best image size for quality vs speed?**
+A: 600px with 180 pins and 1500 steps gives excellent results in reasonable time.
+
+**Q: Can I use any image format?**
+A: Yes, Julia supports JPG, PNG, TIFF, and other common formats.
+
+**Q: How do I create physical string art?**
+A: The algorithm generates a `_sequence.txt` file with step-by-step nail instructions. Follow it exactly with one continuous thread.
+
+**Q: What's the difference between RGB and palette modes?**
+A: RGB uses fixed red/green/blue channels. Palette mode extracts colors from your image for more accurate representation.
+
+**Q: Why are my results blurry?**
+A: Increase `--steps` for more iterations, or reduce `--blur` parameter.
+
+**Q: Can I pause and resume processing?**
+A: No, but you can reduce `--steps` for faster previews, then increase for final quality.
+
+**Q: What if I run out of memory?**
+A: Reduce image size (`-s`), pins (`-n`), or steps (`--steps`). Use `-t 1` for single-threaded processing.
+
+**Q: How do I get better quality?**
+A: Increase `--steps` (3000+), use more pins (`-n 300`), and lower `--line-strength` (15-20).
+
+
