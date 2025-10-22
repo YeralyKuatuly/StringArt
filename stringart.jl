@@ -23,7 +23,6 @@ const RANDOMIZED_PIN_INTERVAL = 100
 const SMALL_CHORD_CUTOFF = 0.10
 const EXCLUDE_REPEATED_PINS = false
 
-# cache needed to store generated chords (very expensive to compute)
 const lru = LRU{Chord, GrayImage}(maxsize=10000)
 
 @enum StringArtMode GrayscaleMode RgbMode PaletteMode
@@ -114,14 +113,16 @@ end
 function run(input::Vector{GrayImage}, args::DefaultArgs)::Tuple{RGBImage,String,GifWrapper}
     # generate all chords to be draw in the canvas
     chords = Tuple[]
+    chords_with_pins = Tuple[]
     for (color, img) in zip(args["colors"], input)
         @info loghelper(args) * "Iterating image with color: #$(hex(color))"
-        for chord in run_algorithm(img, args)
+        for (chord, from_pin, to_pin) in run_algorithm(img, args) 
             push!(chords, (chord, color))
+            push!(chords_with_pins, (chord, color, from_pin, to_pin))
         end
     end
     if args["svg"]
-        save_pin_sequence(chords, args)
+        save_pin_sequence(chords_with_pins, args)
     end
     shuffle!(chords)
 
@@ -202,11 +203,11 @@ function join_channels(images::Dict{RGBColor,GrayImage}, mode::Val{PaletteMode})
 end
 
 """ Core string art generation loop. Produces ordered chords for image approximation. """
-function run_algorithm(input::GrayImage, args::DefaultArgs)::Vector{Chord}
+function run_algorithm(input::GrayImage, args::DefaultArgs)::Vector{Tuple{Chord, Point, Point}}
     steps = div(args["steps"], length(args["colors"]))
 
     @debug "Generating chords and pins positions"
-    output = Vector{Chord}()
+    output = Vector{Tuple{Chord, Point, Point}}()
 
     pins = gen_pins(args["pins"], args["size"])
     pin2chords = Dict(p => gen_chords(p, pins, args["size"]) for p in pins)
@@ -234,12 +235,14 @@ function run_algorithm(input::GrayImage, args::DefaultArgs)::Vector{Chord}
 
         @debug "Updating images and position..."
         add_imgs!(input, img)
-        push!(output, chord)
+        
+        next_pin = (chord.first == pin) ? chord.second : chord.first
+        push!(output, (chord, pin, next_pin))
 
         # don't draw the same chord again
         EXCLUDE_REPEATED_PINS && filter!(c -> c != chord, pin2chords[pin])
         # use the second point of the chord as the next pin
-        pin = (chord.first == pin) ? chord.second : chord.first
+        pin = next_pin
     end
     return output
 end
@@ -482,16 +485,15 @@ function loghelper(args::DefaultArgs)
 end
 
 """ Save the continuous pin sequence to a text file """
-function save_pin_sequence(chords::Vector{Tuple}, args::DefaultArgs)
+function save_pin_sequence(chords_with_pins::Vector{Tuple}, args::DefaultArgs)
     output_path = args["output"]
-    pins = gen_pins(args["pins"], args["size"])
     
     open(output_path * "_sequence.txt", "w") do f
         write(f, "STRING ART BUILD INSTRUCTIONS\n")
         write(f, "=" ^ 60 * "\n\n")
         write(f, "Total nails: $(args["pins"])\n")
-        write(f, "Total connections: $(length(chords))\n")
-        write(f, "Estimated thread length: ~$(Int(round(length(chords) * 0.5)))m\n\n")
+        write(f, "Total connections: $(length(chords_with_pins))\n")
+        write(f, "Estimated thread length: ~$(Int(round(length(chords_with_pins) * 0.5)))m\n\n")
         write(f, "CONTINUOUS PATH:\n")
         write(f, "=" ^ 60 * "\n\n")
         
@@ -504,29 +506,23 @@ function save_pin_sequence(chords::Vector{Tuple}, args::DefaultArgs)
             return nail % args["pins"]
         end
         
-        # Track current pin
-        current_pin = nothing
-        
-        for (i, (chord, color)) in enumerate(chords)
-            nail_from = coord_to_nail(chord.first)
-            nail_to = coord_to_nail(chord.second)
+        # Now we have the actual from_pin and to_pin!
+        for (i, (chord, color, from_pin, to_pin)) in enumerate(chords_with_pins)
+            nail_from = coord_to_nail(from_pin)
+            nail_to = coord_to_nail(to_pin)
             
             if i == 1
                 write(f, "START: Tie thread to Nail $nail_from\n\n")
-                current_pin = nail_from
             end
             
-            # Determine which end connects to current pin
-            if current_pin == nail_from
-                write(f, "Step $(lpad(i, 4)): From Nail $(lpad(nail_from, 3)) → to Nail $(lpad(nail_to, 3))\n")
-                current_pin = nail_to
-            else
-                write(f, "Step $(lpad(i, 4)): From Nail $(lpad(nail_to, 3)) → to Nail $(lpad(nail_from, 3))\n")
-                current_pin = nail_from
-            end
+            write(f, "Step $(lpad(i, 4)): From Nail $(lpad(nail_from, 3)) → to Nail $(lpad(nail_to, 3))\n")
         end
         
-        write(f, "\nEND: Tie off at Nail $current_pin\n")
+        # Get last nail
+        last_chord, last_color, last_from, last_to = chords_with_pins[end]
+        last_nail = coord_to_nail(last_to)
+        
+        write(f, "\nEND: Tie off at Nail $last_nail\n")
         write(f, "\n" * "=" ^ 60 * "\n")
         write(f, "HOW TO BUILD:\n")
         write(f, "=" ^ 60 * "\n")
